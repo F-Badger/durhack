@@ -300,7 +300,7 @@ export default function ChatApp() {
           }}
         >
           <h2 style={{ margin: 0, marginBottom: 8, fontSize: 18 }}>
-            Welcome — pick a username
+            Pick a username
           </h2>
           <p
             style={{
@@ -309,10 +309,7 @@ export default function ChatApp() {
               color: "#c9d0ff",
               fontSize: 13,
             }}
-          >
-            This username will identify you on the leaderboard. It will be
-            locked until you reset or reload the page.
-          </p>
+          ></p>
 
           <form
             onSubmit={(e) => {
@@ -352,10 +349,7 @@ export default function ChatApp() {
             </button>
           </form>
 
-          <div style={{ marginTop: 10, fontSize: 12, color: "#9fa7ff" }}>
-            Tip: pick something memorable — you can reset and pick another name
-            anytime.
-          </div>
+          <div style={{ marginTop: 10, fontSize: 12, color: "#9fa7ff" }}></div>
         </div>
       </div>
     );
@@ -410,10 +404,6 @@ export default function ChatApp() {
           />
         )}
 
-        <div style={{ marginLeft: "auto", color: "#bfc8ff", fontSize: 13 }}>
-          Context window: last {CONTEXT_WINDOW_SIZE} messages
-        </div>
-
         {/* Reset app button (clears username, context and resets UI) */}
         <button
           onClick={handleResetApp}
@@ -430,7 +420,7 @@ export default function ChatApp() {
           }}
           title="Reset the app (clears username, messages and UI state)"
         >
-          Reset app
+          Restart
         </button>
       </div>
 
