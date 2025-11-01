@@ -94,21 +94,38 @@ def submit_action():
 
     try:
         cleaned_response = ai_response.strip()
-        if cleaned_response.startswith('```json'):
-            cleaned_response = cleaned_response.replace('```json', '').replace('```', '').strip()
-        elif cleaned_response.startswith('```'):
-            cleaned_response = cleaned_response.replace('```', '').strip()
+
+        # Remove markdown code blocks more robustly
+        if '```json' in cleaned_response:
+            # Extract content between ```json and ```
+            start = cleaned_response.find('```json') + 7
+            end = cleaned_response.find('```', start)
+            cleaned_response = cleaned_response[start:end].strip()
+        elif '```' in cleaned_response:
+            # Extract content between ``` and ```
+            start = cleaned_response.find('```') + 3
+            end = cleaned_response.find('```', start)
+            cleaned_response = cleaned_response[start:end].strip()
+
+        # Fix invalid JSON (like +45 instead of 45)
+        import re
+        cleaned_response = re.sub(r':\s*\+(\d+)', r': \1', cleaned_response)
 
         parsed = json.loads(cleaned_response)
         score = parsed.get('score', 0)
-        story = parsed.get('story', ai_response)
-    except json.JSONDecodeError as e:
+        story = parsed.get('story', '')
+    except (json.JSONDecodeError, Exception) as e:
         print(f"JSON decode error: {e}")
         print(f"AI Response: {ai_response}")
         score = 0
-        story = ai_response
+        story = "Error parsing AI response"
 
-    updated_context = previous_context if previous_context else []
+    # Build updated context with clean story (not raw AI response)
+    if previous_context and isinstance(previous_context, list):
+        updated_context = previous_context.copy()
+    else:
+        updated_context = []
+
     updated_context.append({"role": "user", "content": action})
     updated_context.append({"role": "assistant", "content": story})
 
