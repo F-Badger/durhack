@@ -5,9 +5,9 @@ export default function ChatMessage({ sender, text, sentiment }) {
   let green = 0x004400;
   let blue = 0x000044;
   if ( sentiment < 0 ) {
-    red = (Math.floor(-255*sentiment))<<16;
+    red = Math.floor(-187*sentiment)+0x44;
   } else {
-    green = Math.floor(255*sentiment)<<8;
+    green = Math.floor(187*sentiment)+0x44;
   };
   var colour = red&&green&&blue
 
