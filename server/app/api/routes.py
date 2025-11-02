@@ -28,7 +28,7 @@ def first_message():
         client = genai.Client(api_key=api_key)
 
         system_prompt = f"""You are a vivid, empathetic storytelling AI. The reader has name {username} use this name to address them,
-        write an opening story of at least five sentences that begins in a world of ruins produced by human actions.
+        write an opening description of at least five sentences that begins in a world of ruins produced by human actions.
         Address the reader by inserting the username into the text at least once.
         Include specific, plausible causes and facts about how the world reached this state—mention rising global
         temperatures and extreme weather driven by carbon emissions, sea-level rise, deforestation and soil erosion,
@@ -37,6 +37,7 @@ def first_message():
         and resource depletion—without turning the story into a list Output only the story text.
         Leave the reader a question about how they will act now to prevent this future from occuring?
         Imagine and set the story to be in the year 2100.
+        Begin with the phrase "The year is 2100". The description should be in present tense and not include characters.
         Output no extra metadata, lists, instructions, or explanation, with no leading or trailing whitespace and just the text.
         """
 
@@ -69,12 +70,13 @@ def submit_action():
     Expected JSON body:
     {
         "username": "player_name",
-        "action": "action description"
+        "action": "action description",
+        "score": <number>
     }
 
     Returns:
     {
-        "score": <number>,
+        "scoreDelta": <number>,
         "story": "<story text>",
         "username": "player_name",
         "action": "action description"
@@ -96,10 +98,12 @@ def submit_action():
 
 
     system_prompt = """You are the AI judge for "Planet Saver" - a game where player actions determine Earth's fate.
-
+    
+    The user describes an action they are taking in the present (2025).
+    You determine the effect it will have on the world in the year 2100.
     Evaluate the environmental impact:
 
-    SCORING GUIDE:
+    SCORE DELTA GUIDE:
     +40 to +50: Major positive (renewable energy, veganism, reforestation)
     +20 to +40: Good actions (cycling, composting, reducing waste)
     +5 to +20: Small positive (recycling, shorter showers, LED bulbs)
@@ -115,18 +119,28 @@ def submit_action():
     -0.4 to 0.0: Slightly negative/concerning
     -1.0 to -0.4: Very negative/alarming
 
+    EARTH STATE BASED ON TOTAL SCORE GUIDE:
+    -50: There is no surviving life left on Earth. Humanity is extinct.
+    0: The world is in ruins due to mass environmental disaster. There are no remaining large human settlements. Plants cannot grow on the surface.
+    +50: The world is in a bad state but there is hope. Some plants can grow.
+    +100: The world is roughly as it is today in 2025. Environmental disaster is still possible but not currently happening.
+    +200: The world is a thriving utopia. Environmental issues have been solved.
+
     STORY RULES:
+    - Begin with the phrase "The year is 2100"
     - 2-3 sentences maximum
-    - Be dramatic and educational
-    - Mention specific impacts (CO2, wildlife, air quality, resources)
+    - Be dramatic and visual
+    - Consider how the specific impacts will lead to a changed scenario in the future
     - Make consequences feel real
-    - Include numbers when relevant (tons of CO2, trees saved, etc.)
+    - Use present tense, as if you are telling a story in the year 2100
+    - Do not include characters including the narrator - this is a purely descriptive text
+    - Use the user's total score to determine the state of Earth
     - End it asking what else they can do
     
 
     OUTPUT FORMAT (JSON only, no markdown, no code blocks):
     {
-        "score": <number between -50 and +50>,
+        "scoreDelta": <number between -50 and +50>,
         "sentiment": <number between -1 and +1>,
         "story": "<compelling 2-3 sentence environmental impact story>"
     }"""
