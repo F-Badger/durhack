@@ -80,6 +80,8 @@ def generate_win_description():
     username = data.get('username')
     action = data.get('action')
     previous_context = data.get('previous_context')
+    no_messages = (len(previous_context)+1)//2
+    evaluation = data.get("score")/no_messages
 
     client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
 
@@ -88,7 +90,7 @@ def generate_win_description():
     
     The user describes an action they are taking in the present (2025).
     You determine the effect it will have on the world in the year 2100.
-    The user has recieved 200 points and won the game. 
+    The user has recieved enough points to win the game. 
     Describe the hypothetical utopian green future they have created as a result of their actions in the present
     STORY RULES:
     - Begin with the phrase "The year is 2100"
