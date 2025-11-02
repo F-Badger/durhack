@@ -6,8 +6,8 @@ const CONTEXT_WINDOW_SIZE = 999;
 const LOCAL_STORAGE_CONTEXT_KEY = "world_saver_chat_context_v1";
 const LOCAL_STORAGE_USERNAME_KEY = "world_saver_username_v1";
 
-const WINNING_SCORE = 15;
-const LOSING_SCORE = -5;
+const WINNING_SCORE = 101;
+const LOSING_SCORE = -51;
 
 // Default starting message used only as fallback (sentiment = 0)
 const DEFAULT_MESSAGES = [
@@ -38,7 +38,27 @@ export default function ChatApp() {
   const [showUsernameModal, setShowUsernameModal] = useState(
     !initialStoredUsername
   );
-
+  async function getUsernameToken(username) {
+    const nickname = username;
+    try {
+      const nicknamePayload = { nickname };
+      const nicknameResp = await fetch(
+        "http://localhost:5000/api/player/register",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(nicknamePayload),
+          signal: controller.signal,
+        }
+      );
+      if (!resp2.ok) throw new Error(`HTTP ${resp2.status}`);
+      const j = await resp2.json();
+      responseText = j.session_token;
+    } catch (e) {
+      console.warn("Failed to fetch lose description:", e);
+    }
+  }
+  const [sessionToken, setSessionToken] = useState(getUsernameToken(username))
   const [gameOver, setGameOver] = useState(false);
   const [gameResult, setGameResult] = useState(null); // null | 'win' | 'lose'
 
