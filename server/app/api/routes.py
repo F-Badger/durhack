@@ -1,7 +1,11 @@
 from flask import jsonify, request, Blueprint
 import json
 import os
+import secrets
 from google import genai
+from app.db import db
+from app.models import GameResult
+from datetime import datetime, timezone
 
 api = Blueprint('api', __name__, url_prefix="/api")
 
@@ -60,6 +64,88 @@ def first_message():
     except:
         # Catches errors specific to the Gemini API (e.g., key error, bad request)
         return jsonify({'error': 'Gemini API call failed',}), 500
+
+
+@api.route('/player/register', methods=['POST'])
+def register_player():
+    """
+    Register a player and create a session token.
+
+    Request:
+    {
+        "nickname": x
+    }
+
+    Response:
+    {
+        "session_token": xyz,
+        "nickname": x,
+        "returning_player": True/False,
+        'best_score": x (? if player exists)
+    }
+    """
+    data = request.get_json()
+    nickname = data.get('nickname')
+
+    if not nickname:
+        return jsonify({'error': 'Nickname is required'}), 400
+
+    existing = GameResult.query.filter_by(nickname=nickname).first()
+
+    if existing and existing.player_id:
+        return jsonify({
+            'session_token': existing.player_id,
+            'nickname': existing.nickname,
+            'returning_player': True,
+            'best_score': existing.total_score
+        })
+
+    player_id = secrets.token_urlsafe(16)
+
+    return jsonify({
+        'session_token': player_id,
+        'nickname': nickname,
+        'returning_player': False
+    }), 201
+
+
+@api.route('/player/verify', methods=['GET'])
+def verify_player():
+    """
+    Verify if a player's session token is valid.
+
+    Headers:
+    X-Player-Token: x
+
+    Response:
+    {
+        "valid": true,
+        "nickname": x,
+        "best_score": 300
+    }
+    """
+    player_token = request.headers.get('X-Player-Token')
+
+    if not player_token:
+        return jsonify({'error': 'No player token provided'}), 401
+
+    # if player exists in database
+    result = GameResult.query.filter_by(player_id=player_token).first()
+
+    if result:
+        return jsonify({
+            'valid': True,
+            'nickname': result.nickname,
+            'best_score': result.total_score,
+            'player_id': result.player_id
+        })
+
+    # exists but no game played yet - still valid
+    return jsonify({
+        'valid': True,
+        'new_player': True
+    })
+
 
     
 @api.route('/generate-win-description', methods=['POST'])
@@ -372,3 +458,177 @@ def submit_action():
         'action': action,
         'previouscontext': updated_context
     })
+
+
+@api.route('/game/end', methods=['POST'])
+def end_game():
+    """
+    Save game results to database when game ends.
+
+    Expected JSON body:
+    {
+        "nickname": "player_name",
+        "initial_years": 50,
+        "final_years": 75,
+        "total_score": 150,
+        "actions_count": 10,
+        "status": "won"  // or "lost"
+    }
+
+    Returns:
+    {
+        "message": "Game result saved",
+        "id": 123,
+        "rank": 5
+    }
+    """
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'error': 'No JSON data provided'}), 400
+
+    nickname = data.get('nickname')
+    player_id = data.get('player_id')  # Get player_id from request
+    initial_years = data.get('initial_years')
+    final_years = data.get('final_years')
+    total_score = data.get('total_score')
+    actions_count = data.get('actions_count', 0)
+    status = data.get('status', 'lost')
+
+    # Validate required fields
+    if not nickname or initial_years is None or final_years is None or total_score is None:
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    try:
+        # Check if player already exists
+        existing_result = GameResult.query.filter_by(nickname=nickname).first()
+
+        print(f"DEBUG: Looking for nickname '{nickname}'")
+        print(f"DEBUG: Found existing? {existing_result is not None}")
+        if existing_result:
+            print(f"DEBUG: Existing score: {existing_result.total_score}, New score: {total_score}")
+
+        if existing_result:
+            # Update only if new score is better
+            if total_score > existing_result.total_score:
+                existing_result.initial_years = initial_years
+                existing_result.final_years = final_years
+                existing_result.total_score = total_score
+                existing_result.actions_count = actions_count
+                existing_result.status = status
+                existing_result.played_at = datetime.now(timezone.utc)
+
+                db.session.commit()
+
+                # Calculate rank
+                rank = GameResult.query.filter(GameResult.total_score > total_score).count() + 1
+
+                return jsonify({
+                    'message': 'Game result updated (new high score!)',
+                    'id': existing_result.id,
+                    'rank': rank,
+                    'years_saved': final_years - initial_years,
+                    'improved': True
+                }), 200
+            else:
+                # Don't update, but return current rank
+                rank = GameResult.query.filter(GameResult.total_score > existing_result.total_score).count() + 1
+
+                return jsonify({
+                    'message': 'Score not improved, kept previous best',
+                    'id': existing_result.id,
+                    'rank': rank,
+                    'years_saved': final_years - initial_years,
+                    'improved': False,
+                    'best_score': existing_result.total_score
+                }), 200
+        else:
+            # Create new game result for new player
+            game_result = GameResult(
+                nickname=nickname,
+                player_id=player_id,  # Save player_id
+                initial_years=initial_years,
+                final_years=final_years,
+                total_score=total_score,
+                actions_count=actions_count,
+                status=status,
+                played_at=datetime.now(timezone.utc)
+            )
+
+            db.session.add(game_result)
+            db.session.commit()
+
+            # Calculate rank
+            rank = GameResult.query.filter(GameResult.total_score > total_score).count() + 1
+
+            return jsonify({
+                'message': 'Game result saved successfully',
+                'id': game_result.id,
+                'rank': rank,
+                'years_saved': final_years - initial_years,
+                'improved': True
+            }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error saving game result: {e}")
+        return jsonify({'error': 'Failed to save game result'}), 500
+
+
+@api.route('/leaderboard', methods=['GET'])
+def leaderboard():
+    """
+    Get top players from leaderboard.
+
+    Query params:
+    - limit: number of results (default 10, max 100)
+    - sort_by: 'score' (default) or 'years_saved'
+
+    Returns:
+    {
+        "leaderboard": [
+            {
+                "id": 1,
+                "nickname": "EcoWarrior",
+                "total_score": 250,
+                "years_saved": 30,
+                "actions_count": 15,
+                "status": "won",
+                "played_at": "2025-11-02T00:00:00"
+            },
+            ...
+        ],
+        "total_players": 150
+    }
+    """
+    limit = request.args.get('limit', 10, type=int)
+    sort_by = request.args.get('sort_by', 'score')
+
+    limit = min(limit, 100)
+
+    try:
+        if sort_by == 'years_saved':
+            # Sort by (final_years - initial_years) descending
+            results = GameResult.query.order_by(
+                (GameResult.final_years - GameResult.initial_years).desc()
+            ).limit(limit).all()
+        else:
+            # sort by total_score
+            results = GameResult.query.order_by(
+                GameResult.total_score.desc()
+            ).limit(limit).all()
+
+        total_players = GameResult.query.count()
+
+        leaderboard_data = [result.to_dict() for result in results]
+
+        return jsonify({
+            'leaderboard': leaderboard_data,
+            'total_players': total_players,
+            'limit': limit,
+            'sort_by': sort_by
+        })
+
+    except Exception as e:
+        print(f"Error fetching leaderboard: {e}")
+        return jsonify({'error': 'Failed to fetch leaderboard'}), 500
