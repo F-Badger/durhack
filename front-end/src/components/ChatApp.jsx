@@ -6,6 +6,9 @@ const CONTEXT_WINDOW_SIZE = 999;
 const LOCAL_STORAGE_CONTEXT_KEY = "world_saver_chat_context_v1";
 const LOCAL_STORAGE_USERNAME_KEY = "world_saver_username_v1";
 
+const WINNING_SCORE = 15;
+const LOSING_SCORE = -50;
+
 // Default starting message used only as fallback (sentiment = 0)
 const DEFAULT_MESSAGES = [
   {
@@ -230,6 +233,8 @@ export default function ChatApp() {
       score: score,
     };
 
+    let tempScore = score;
+
     console.log("Outgoing payload:", payload);
     setIsGenerating(true);
 
@@ -264,13 +269,85 @@ export default function ChatApp() {
 
           const extraScore =
             j && j.scoreDelta != null ? Number(j.scoreDelta) : 0;
-          console.log(extraScore);
+          tempScore += extraScore;
           setScore((cur) => cur + extraScore);
         } else if (typeof j === "string") {
           responseText = j;
         }
       } else {
         responseText = await resp.text();
+      }
+
+      if (tempScore >= WINNING_SCORE) {
+        console.log(tempScore);
+        try {
+          console.log(contextIncludingThisAction);
+          const payload2 = {
+            username,
+            previouscontext: buildApiConversationPayload(
+              contextIncludingThisAction
+            ),
+            action: userText,
+            score: tempScore,
+          };
+
+          const resp = await fetch(
+            "http://localhost:5000/api/generate-win-description",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload2),
+              signal: controller.signal,
+            }
+          );
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const j = await resp.json();
+          const story =
+            typeof j.story === "string"
+              ? j.story
+              : typeof j.text === "string"
+              ? j.text
+              : null;
+          responseText = story;
+        } catch {
+          console.log("Error");
+        }
+      } else if (tempScore <= LOSING_SCORE) {
+        if (tempScore >= WINNING_SCORE) {
+          console.log(tempScore);
+          try {
+            console.log(contextIncludingThisAction);
+            const payload2 = {
+              username,
+              previouscontext: buildApiConversationPayload(
+                contextIncludingThisAction
+              ),
+              action: userText,
+              score: tempScore,
+            };
+
+            const resp = await fetch(
+              "http://localhost:5000/api/generate-win-description",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload2),
+                signal: controller.signal,
+              }
+            );
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const j = await resp.json();
+            const story =
+              typeof j.story === "string"
+                ? j.story
+                : typeof j.text === "string"
+                ? j.text
+                : null;
+            responseText = story;
+          } catch {
+            console.log("Error");
+          }
+        }
       }
 
       // Append exactly one bot placeholder with sentiment (so we won't create two bubbles)
