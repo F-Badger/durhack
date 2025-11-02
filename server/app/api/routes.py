@@ -43,7 +43,7 @@ def first_message():
 
         # API Call - This is the most likely place for an external exception
         response = client.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model="gemini-2.5-flash-lite",
             contents=system_prompt
         )
 
@@ -93,7 +93,10 @@ def generate_win_description():
     - Do not include characters including the narrator - this is a purely descriptive text
     - Consequences should feel real.
     - Next, tell the user this was a hypothetical scenario, but their actions have had positive impact in the real world
+    - Talk about their actions based on the previous conversation
     - Use statistics and figures e.g. how much CO2 the user may have saved.
+    - You should encourage the user to reflect specifically on any bad choices they made that would be harmful
+    - And tell them how they could have done better
     - This should inspire the user to do good 
     Output no extra metadata, lists, instructions, or explanation, with no leading or trailing whitespace and just the text.
     """
@@ -113,7 +116,7 @@ def generate_win_description():
     full_prompt += current_prompt
 
     response = client.models.generate_content(
-        model="gemini-2.0-flash-exp",
+        model="gemini-2.5-flash-lite",
         contents=full_prompt
     )
 
@@ -232,7 +235,7 @@ def submit_action():
     full_prompt += current_prompt
 
     response = client.models.generate_content(
-        model="gemini-2.0-flash-exp",
+        model="gemini-2.5-flash-lite",
         contents=full_prompt
     )
 
