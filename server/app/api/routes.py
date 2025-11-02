@@ -116,7 +116,7 @@ def generate_win_description():
     full_prompt += current_prompt
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash-lite",
+        model="gemini-2.5-flash",
         contents=full_prompt
     )
 
@@ -191,7 +191,7 @@ def generate_lose_description():
     full_prompt += current_prompt
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash-lite",
+        model="gemini-2.5-flash",
         contents=full_prompt
     )
 
