@@ -1,0 +1,5 @@
+.venv/
+server/.flaskenv
+server/.env
+.idea/
+server/.idea
