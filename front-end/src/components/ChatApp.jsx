@@ -47,21 +47,28 @@ export default function ChatApp() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(nicknamePayload),
-          signal: controller.signal,
+          body: JSON.stringify(nicknamePayload)
         }
       );
-      if (!resp2.ok) throw new Error(`HTTP ${resp2.status}`);
-      const j = await resp2.json();
-      responseText = j.session_token;
+      console.log(nicknameResp);
+      if (!nicknameResp.ok) {
+        throw new Error(`HTTP ${nicknameResp.status}`);
+      };
+      const j = await nicknameResp.json();
+      const responseText = j.session_token;
+      return responseText;
     } catch (e) {
-      console.warn("Failed to fetch lose description:", e);
+      console.warn("Failed to fetch session token:", e);
     }
   }
-  const [sessionToken, setSessionToken] = useState(getUsernameToken(username))
+  const [sessionToken, setSessionToken] = useState("")
   const [gameOver, setGameOver] = useState(false);
   const [gameResult, setGameResult] = useState(null); // null | 'win' | 'lose'
-
+  useEffect(() => {
+    if (username != "") {
+      setSessionToken(getUsernameToken(username))
+    };
+  },[username])
   // messages: hydrate from localStorage if present, otherwise start empty so we can fetch
   const [messages, setMessages] = useState(() => {
     try {
@@ -268,7 +275,9 @@ export default function ChatApp() {
     try {
       const resp = await fetch("http://localhost:5000/api/submit-action", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json" },
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
