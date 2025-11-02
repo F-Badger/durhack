@@ -54,6 +54,8 @@ export default function ChatApp() {
   const fetchControllerRef = useRef(null);
   const mountedRef = useRef(true);
 
+  const [score, setScore] = useState(0);
+
   // Persist recent context when messages change
   useEffect(() => {
     const ctx = getContextWindow(messages, CONTEXT_WINDOW_SIZE);
@@ -225,6 +227,7 @@ export default function ChatApp() {
       username,
       previouscontext: buildApiConversationPayload(contextIncludingThisAction),
       action: userText,
+      score: score,
     };
 
     console.log("Outgoing payload:", payload);
@@ -251,12 +254,18 @@ export default function ChatApp() {
         const j = await resp.json();
         if (j && typeof j === "object") {
           responseText = j.story ?? j.text ?? j.output ?? "";
+          console.log(j);
           sentimentValue =
             j.sentiment != null
               ? Number(j.sentiment)
-              : j.score != null
-              ? Number(j.score)
+              : j.scoreDelta != null
+              ? Number(j.scoreDelta)
               : null;
+
+          const extraScore =
+            j && j.scoreDelta != null ? Number(j.scoreDelta) : 0;
+          console.log(extraScore);
+          setScore((cur) => cur + extraScore);
         } else if (typeof j === "string") {
           responseText = j;
         }
@@ -416,7 +425,7 @@ export default function ChatApp() {
         >
           {username}
         </div>
-
+        <label style={{ color: "#cfd6ff", fontSize: 13 }}>Score:{score}</label>
         <button
           onClick={handleResetApp}
           style={{

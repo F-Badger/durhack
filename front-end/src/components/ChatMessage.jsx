@@ -11,7 +11,6 @@ export default function ChatMessage({ sender, text, sentiment }) {
 
   // console.log(sentiment);
   var colour = `rgb(${red},${green},${blue})`;
-
   const isUser = sender === "user";
   return (
     <div className={`message-row ${isUser ? "user-message" : "bot-message"}`}>
