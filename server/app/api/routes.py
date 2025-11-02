@@ -39,9 +39,10 @@ def first_message():
         industrial agriculture and monocultures, plastic pollution and microplastics in oceans and food,
         ocean acidification and collapsing fisheries, species extinctions, air pollution and contaminated rivers,
         and resource depletion—without turning the story into a list Output only the story text.
-        Leave the reader a question about how they will act now to prevent this future from occuring?
+        Leave the reader a question about what action they are taking in the present to prevent this future from occuring.
         Imagine and set the story to be in the year 2100.
         Begin with the phrase "The year is 2100". The description should be in present tense and not include characters.
+        The description should be 4-6 sentences.
         Output no extra metadata, lists, instructions, or explanation, with no leading or trailing whitespace and just the text.
         """
 
