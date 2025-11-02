@@ -7,7 +7,7 @@ const LOCAL_STORAGE_CONTEXT_KEY = "world_saver_chat_context_v1";
 const LOCAL_STORAGE_USERNAME_KEY = "world_saver_username_v1";
 
 const WINNING_SCORE = 15;
-const LOSING_SCORE = -50;
+const LOSING_SCORE = -5;
 
 // Default starting message used only as fallback (sentiment = 0)
 const DEFAULT_MESSAGES = [
@@ -38,6 +38,9 @@ export default function ChatApp() {
   const [showUsernameModal, setShowUsernameModal] = useState(
     !initialStoredUsername
   );
+
+  const [gameOver, setGameOver] = useState(false);
+  const [gameResult, setGameResult] = useState(null); // null | 'win' | 'lose'
 
   // messages: hydrate from localStorage if present, otherwise start empty so we can fetch
   const [messages, setMessages] = useState(() => {
@@ -214,7 +217,7 @@ export default function ChatApp() {
 
   // handleSend: append user message, call backend, append one bot placeholder with sentiment, stream text
   async function handleSend(userText) {
-    if (!userText || !userText.trim() || isGenerating) return;
+    if (!userText || !userText.trim() || isGenerating || gameOver) return;
     if (!usernameLocked || !username) {
       alert("Please set a username first.");
       return;
@@ -234,6 +237,7 @@ export default function ChatApp() {
     };
 
     let tempScore = score;
+    let finalResult = null; // 'win' | 'lose' | null
 
     console.log("Outgoing payload:", payload);
     setIsGenerating(true);
@@ -260,6 +264,7 @@ export default function ChatApp() {
         if (j && typeof j === "object") {
           responseText = j.story ?? j.text ?? j.output ?? "";
           console.log(j);
+          // parse sentiment/score delta
           sentimentValue =
             j.sentiment != null
               ? Number(j.sentiment)
@@ -278,10 +283,14 @@ export default function ChatApp() {
         responseText = await resp.text();
       }
 
+      // Check win/lose conditions using updated tempScore
       if (tempScore >= WINNING_SCORE) {
-        console.log(tempScore);
+        finalResult = "win";
+        setGameResult("win");
+        setGameOver(true);
+
+        // request extra win description (optional - you already do this)
         try {
-          console.log(contextIncludingThisAction);
           const payload2 = {
             username,
             previouscontext: buildApiConversationPayload(
@@ -291,7 +300,7 @@ export default function ChatApp() {
             score: tempScore,
           };
 
-          const resp = await fetch(
+          const resp2 = await fetch(
             "http://localhost:5000/api/generate-win-description",
             {
               method: "POST",
@@ -300,53 +309,41 @@ export default function ChatApp() {
               signal: controller.signal,
             }
           );
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          const j = await resp.json();
-          const story =
-            typeof j.story === "string"
-              ? j.story
-              : typeof j.text === "string"
-              ? j.text
-              : null;
-          responseText = story;
-        } catch {
-          console.log("Error");
+          if (!resp2.ok) throw new Error(`HTTP ${resp2.status}`);
+          const j2 = await resp2.json();
+          responseText = j2.story ?? j2.text ?? responseText;
+        } catch (e) {
+          console.warn("Failed to fetch win description:", e);
         }
       } else if (tempScore <= LOSING_SCORE) {
-        if (tempScore >= WINNING_SCORE) {
-          console.log(tempScore);
-          try {
-            console.log(contextIncludingThisAction);
-            const payload2 = {
-              username,
-              previouscontext: buildApiConversationPayload(
-                contextIncludingThisAction
-              ),
-              action: userText,
-              score: tempScore,
-            };
+        finalResult = "lose";
+        setGameResult("lose");
+        setGameOver(true);
 
-            const resp = await fetch(
-              "http://localhost:5000/api/generate-win-description",
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload2),
-                signal: controller.signal,
-              }
-            );
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const j = await resp.json();
-            const story =
-              typeof j.story === "string"
-                ? j.story
-                : typeof j.text === "string"
-                ? j.text
-                : null;
-            responseText = story;
-          } catch {
-            console.log("Error");
-          }
+        try {
+          const payload2 = {
+            username,
+            previouscontext: buildApiConversationPayload(
+              contextIncludingThisAction
+            ),
+            action: userText,
+            score: tempScore,
+          };
+
+          const resp2 = await fetch(
+            "http://localhost:5000/api/generate-lose-description",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload2),
+              signal: controller.signal,
+            }
+          );
+          if (!resp2.ok) throw new Error(`HTTP ${resp2.status}`);
+          const j2 = await resp2.json();
+          responseText = j2.story ?? j2.text ?? responseText;
+        } catch (e) {
+          console.warn("Failed to fetch lose description:", e);
         }
       }
 
@@ -360,6 +357,24 @@ export default function ChatApp() {
 
       // Stream the response text into that placeholder
       await streamBotMessage(responseText || "(no story returned)");
+
+      // --- AFTER streaming finishes, if the game just ended, append the final "game over" announcement bubble ---
+      if (finalResult) {
+        const announcement =
+          finalResult === "win"
+            ? `🎉 Game over — you WON! Final score: ${tempScore}. Congratulations! Press Restart to try again!`
+            : `💥 Game over — you LOST. Final score: ${tempScore}. Better luck next time. Press Restart to try again!`;
+
+        // small delay so the announcement appears after the streamed text
+        await new Promise((r) => setTimeout(r, 350));
+
+        appendMessage({
+          sender: "bot",
+          text: announcement,
+          streaming: false,
+          sentiment: finalResult === "win" ? 1 : -0.75,
+        });
+      }
     } catch (err) {
       if (err && err.name === "AbortError") {
         // aborted by reset/unmount
@@ -386,6 +401,7 @@ export default function ChatApp() {
     try {
       localStorage.removeItem(LOCAL_STORAGE_USERNAME_KEY);
       localStorage.removeItem(LOCAL_STORAGE_CONTEXT_KEY);
+      setGameOver(false);
     } catch {}
     window.location.reload();
   }
@@ -548,7 +564,7 @@ export default function ChatApp() {
         )}
       </div>
 
-      <ChatInput onSend={handleSend} disabled={isGenerating} />
+      <ChatInput onSend={handleSend} disabled={isGenerating || gameOver} />
     </div>
   );
 }
