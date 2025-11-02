@@ -6,8 +6,8 @@ const CONTEXT_WINDOW_SIZE = 999;
 const LOCAL_STORAGE_CONTEXT_KEY = "world_saver_chat_context_v1";
 const LOCAL_STORAGE_USERNAME_KEY = "world_saver_username_v1";
 
-const WINNING_SCORE = 15;
-const LOSING_SCORE = -5;
+const WINNING_SCORE = 200;
+const LOSING_SCORE = -50;
 
 // Default starting message used only as fallback (sentiment = 0)
 const DEFAULT_MESSAGES = [
@@ -285,7 +285,8 @@ export default function ChatApp() {
       const previouscontext = buildApiConversationPayload(
         contextIncludingThisAction
       );
-      const efficacyScore = tempScore / Math.floor((previouscontext.length+1)/2);  //score / number of messages. Basically how efficiently user did good
+      const efficacyScore =
+        tempScore / Math.floor((previouscontext.length + 1) / 2); //score / number of messages. Basically how efficiently user did good
 
       // Check win/lose conditions using updated tempScore
       if (tempScore >= WINNING_SCORE) {
@@ -328,7 +329,7 @@ export default function ChatApp() {
             action: userText,
             score: tempScore,
           };
-        
+
           const resp2 = await fetch(
             "http://localhost:5000/api/generate-lose-description",
             {
