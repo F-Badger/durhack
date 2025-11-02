@@ -9,7 +9,58 @@ api = Blueprint('api', __name__, url_prefix="/api")
 def test():
     return {'message': 'qwerty'}
 
+@api.route("first-message", methods=['POST'])
+def first_message():
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No JSON data provided'}), 400
 
+    username = data.get('username')
+
+    # --- Start of Try Block ---
+    try:
+        # Initialize client (this might fail if the key isn't found/loaded correctly)
+        api_key = os.getenv('GEMINI_API_KEY')
+        if not api_key:
+             # Explicitly handle missing key right away
+             return jsonify({'error': 'GEMINI_API_KEY is not set in environment.'}), 500
+
+        client = genai.Client(api_key=api_key)
+
+        system_prompt = f"""You are a vivid, empathetic storytelling AI. The reader has name {username} use this name to address them,
+        write an opening story of at least five sentences that begins in a world of ruins produced by human actions.
+        Address the reader by inserting the username into the text at least once.
+        Include specific, plausible causes and facts about how the world reached this state—mention rising global
+        temperatures and extreme weather driven by carbon emissions, sea-level rise, deforestation and soil erosion,
+        industrial agriculture and monocultures, plastic pollution and microplastics in oceans and food,
+        ocean acidification and collapsing fisheries, species extinctions, air pollution and contaminated rivers,
+        and resource depletion—without turning the story into a list Output only the story text.
+        Leave the reader a question about how they will act now to prevent this future from occuring?
+        Imagine and set the story to be in the year 2100.
+        Output no extra metadata, lists, instructions, or explanation, with no leading or trailing whitespace and just the text.
+        """
+
+        # API Call - This is the most likely place for an external exception
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-exp",
+            contents=system_prompt
+        )
+
+        ai_response = response.text
+       # print(f"AI Response: {ai_response}") # Print for server debugging
+
+        ai_response = ai_response.strip()
+        # Successful Return
+        return jsonify({
+            "story": ai_response
+        }), 200
+
+    # --- Exception Handling ---
+    except:
+        # Catches errors specific to the Gemini API (e.g., key error, bad request)
+        return jsonify({'error': 'Gemini API call failed',}), 500
+
+    
 @api.route('/submit-action', methods=['POST'])
 def submit_action():
     """
@@ -63,6 +114,7 @@ def submit_action():
     - Mention specific impacts (CO2, wildlife, air quality, resources)
     - Make consequences feel real
     - Include numbers when relevant (tons of CO2, trees saved, etc.)
+    - End it asking what else they can do
     
     OUTPUT FORMAT (JSON only, no markdown, no code blocks):
     {

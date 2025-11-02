@@ -2,27 +2,22 @@ import React, { useEffect, useRef, useState } from "react";
 import ChatMessage from "./ChatMessage";
 import ChatInput from "./ChatInput";
 
-/*
-  ChatApp (sentiment support)
-  - Expects backend JSON shape like: { story: "...", sentiment: 0.42 }
-  - Attaches sentiment value to the bot message object: { sender, text, streaming, sentiment }
-*/
-
 const CONTEXT_WINDOW_SIZE = 999;
 const LOCAL_STORAGE_CONTEXT_KEY = "world_saver_chat_context_v1";
 const LOCAL_STORAGE_USERNAME_KEY = "world_saver_username_v1";
 
+// Default starting message used only as fallback (sentiment = 0)
 const DEFAULT_MESSAGES = [
   {
     sender: "bot",
     text: "🌍 The world is crumbling... Tell me how you’ll help save it!",
     streaming: false,
-    sentiment: null,
+    sentiment: 0,
   },
 ];
 
 export default function ChatApp() {
-  // username handling (same as before)
+  // username handling
   const initialStoredUsername = (() => {
     try {
       const v = localStorage.getItem(LOCAL_STORAGE_USERNAME_KEY);
@@ -41,22 +36,25 @@ export default function ChatApp() {
     !initialStoredUsername
   );
 
-  // messages
+  // messages: hydrate from localStorage if present, otherwise start empty so we can fetch
   const [messages, setMessages] = useState(() => {
     try {
       const raw = localStorage.getItem(LOCAL_STORAGE_CONTEXT_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch {}
-    return DEFAULT_MESSAGES;
+    // start empty — we'll fetch the initial message after username is set
+    return [];
   });
 
   const [isGenerating, setIsGenerating] = useState(false);
   const chatBoxRef = useRef(null);
+  const fetchControllerRef = useRef(null);
+  const mountedRef = useRef(true);
 
-  // persist context
+  // Persist recent context when messages change
   useEffect(() => {
     const ctx = getContextWindow(messages, CONTEXT_WINDOW_SIZE);
     try {
@@ -66,6 +64,7 @@ export default function ChatApp() {
       chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
   }, [messages]);
 
+  // Persist username when locked
   useEffect(() => {
     if (usernameLocked && username) {
       try {
@@ -74,7 +73,86 @@ export default function ChatApp() {
     }
   }, [usernameLocked, username]);
 
-  // helpers to manage messages
+  // cleanup on unmount
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (fetchControllerRef.current) {
+        try {
+          fetchControllerRef.current.abort();
+        } catch {}
+        fetchControllerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Fetch initial message once: only when username is locked (set) AND we have no messages
+  useEffect(() => {
+    let called = false;
+    async function fetchFirstMessage() {
+      if (called) return;
+      called = true;
+
+      // only fetch if no messages (fresh user) and username is set/locked
+      if (messages.length > 0 || !usernameLocked || !username) return;
+
+      setIsGenerating(true);
+      const controller = new AbortController();
+      fetchControllerRef.current = controller;
+
+      try {
+        const payload = { username };
+        const resp = await fetch("http://localhost:5000/api/first-message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+        const j = await resp.json();
+        const story =
+          typeof j.story === "string"
+            ? j.story
+            : typeof j.text === "string"
+            ? j.text
+            : null;
+        const sentimentValue =
+          j && (j.sentiment ?? j.score) != null
+            ? Number(j.sentiment ?? j.score)
+            : 0;
+
+        // Append a single bot placeholder with sentiment (streamBotMessage will reuse it)
+        setMessages((prev) => [
+          ...prev,
+          {
+            sender: "bot",
+            text: "",
+            streaming: true,
+            sentiment: Number.isFinite(sentimentValue) ? sentimentValue : -1,
+          },
+        ]);
+
+        // stream the story into that placeholder
+        const textToStream = story || DEFAULT_MESSAGES[0].text;
+        await streamBotMessage(textToStream);
+      } catch (err) {
+        console.error("Failed to fetch initial message:", err);
+        // fallback to default message with sentiment 0 (replace messages)
+        setMessages(DEFAULT_MESSAGES.slice());
+      } finally {
+        fetchControllerRef.current = null;
+        if (mountedRef.current) setIsGenerating(false);
+      }
+    }
+
+    fetchFirstMessage();
+    // run when usernameLocked changes or when messages length is zero initially
+  }, [usernameLocked, username, messages.length]);
+
+  // Helpers
   function getContextWindow(allMessages, windowSize) {
     if (!Array.isArray(allMessages)) return [];
     return allMessages.slice(-windowSize);
@@ -103,47 +181,33 @@ export default function ChatApp() {
     });
   }
 
-  // Stream message char-by-char and leave sentiment in place
+  // streamBotMessage: reuse existing placeholder if it's the last bot with streaming:true
   async function streamBotMessage(fullText) {
-    // if there's no placeholder, ensure one exists
-    const last = messages[messages.length - 1] || {};
-    if (!last || last.sender !== "bot") {
-      appendMessage({
-        sender: "bot",
-        text: "",
-        streaming: true,
-        sentiment: null,
-      });
-    } else {
-      // mark streaming true if not already
-      replaceLastMessage((l) => ({ ...l, streaming: true }));
-    }
+    // Ensure there's a placeholder to fill. If a last message is a bot and streaming === true, reuse it.
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.sender === "bot" && last.streaming) {
+        return prev; // reuse
+      }
+      // append one placeholder (no sentiment)
+      return [
+        ...prev,
+        { sender: "bot", text: "", streaming: true, sentiment: null },
+      ];
+    });
 
+    // Type into the last message
     for (let i = 0; i < fullText.length; i++) {
+      if (!mountedRef.current) break;
       await new Promise((r) => setTimeout(r, 16));
       replaceLastMessage((l) => ({ ...l, text: fullText.slice(0, i + 1) }));
     }
 
+    // mark streaming finished
     replaceLastMessage((l) => ({ ...l, streaming: false }));
   }
 
-  // network controller to allow abort on reset
-  const isComponentMountedRef = useRef(true);
-  const fetchControllerRef = useRef(null);
-  useEffect(() => {
-    isComponentMountedRef.current = true;
-    return () => {
-      isComponentMountedRef.current = false;
-      if (fetchControllerRef.current) {
-        try {
-          fetchControllerRef.current.abort();
-        } catch {}
-        fetchControllerRef.current = null;
-      }
-    };
-  }, []);
-
-  // handle send: call backend, parse story + sentiment, attach sentiment to message then stream text
+  // handleSend: append user message, call backend, append one bot placeholder with sentiment, stream text
   async function handleSend(userText) {
     if (!userText || !userText.trim() || isGenerating) return;
     if (!usernameLocked || !username) {
@@ -151,36 +215,25 @@ export default function ChatApp() {
       return;
     }
 
-    // show user message immediately
     appendMessage({ sender: "user", text: userText, streaming: false });
 
-    // build payload (include new user message in context)
     const contextIncludingThisAction = getContextWindow(
       [...messages, { sender: "user", text: userText }],
       CONTEXT_WINDOW_SIZE
     );
     const payload = {
-      username: username || "anonymous",
+      username,
       previouscontext: buildApiConversationPayload(contextIncludingThisAction),
       action: userText,
     };
 
     console.log("Outgoing payload:", payload);
-
     setIsGenerating(true);
 
-    // create placeholder bot message (we'll update it)
-    appendMessage({
-      sender: "bot",
-      text: "",
-      streaming: true,
-      sentiment: null,
-    });
+    const controller = new AbortController();
+    fetchControllerRef.current = controller;
 
     try {
-      const controller = new AbortController();
-      fetchControllerRef.current = controller;
-
       const resp = await fetch("http://localhost:5000/api/submit-action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -196,43 +249,34 @@ export default function ChatApp() {
 
       if (ct.includes("application/json")) {
         const j = await resp.json();
-
-        // preferred: backend returns { story: "...", sentiment: 0.42 }
         if (j && typeof j === "object") {
-          if (typeof j.story === "string") responseText = j.story;
-          else if (typeof j.text === "string") responseText = j.text;
-          else if (typeof j.output === "string") responseText = j.output;
-          else responseText = JSON.stringify(j);
-
-          // try common sentiment fields
-          if (j.sentiment !== undefined && j.sentiment !== null) {
-            // accept numeric or numeric-as-string
-            const n = Number(j.sentiment);
-            sentimentValue = Number.isFinite(n) ? n : null;
-          } else if (j.score !== undefined && j.score !== null) {
-            const n = Number(j.score);
-            sentimentValue = Number.isFinite(n) ? n : null;
-          }
+          responseText = j.story ?? j.text ?? j.output ?? "";
+          sentimentValue =
+            j.sentiment != null
+              ? Number(j.sentiment)
+              : j.score != null
+              ? Number(j.score)
+              : null;
         } else if (typeof j === "string") {
           responseText = j;
         }
       } else {
-        // plain text response
         responseText = await resp.text();
       }
 
-      // attach sentiment to the placeholder bot message (if any)
-      if (isComponentMountedRef.current) {
-        replaceLastMessage((l) => ({ ...l, sentiment: sentimentValue }));
-      }
+      // Append exactly one bot placeholder with sentiment (so we won't create two bubbles)
+      appendMessage({
+        sender: "bot",
+        text: "",
+        streaming: true,
+        sentiment: Number.isFinite(sentimentValue) ? sentimentValue : null,
+      });
 
-      // stream the story text into the UI (updates the last message text)
-      if (isComponentMountedRef.current) {
-        await streamBotMessage(responseText || "(no story returned)");
-      }
+      // Stream the response text into that placeholder
+      await streamBotMessage(responseText || "(no story returned)");
     } catch (err) {
       if (err && err.name === "AbortError") {
-        // aborted, do nothing
+        // aborted by reset/unmount
       } else {
         appendMessage({
           sender: "bot",
@@ -245,43 +289,24 @@ export default function ChatApp() {
       }
     } finally {
       fetchControllerRef.current = null;
-      if (isComponentMountedRef.current) setIsGenerating(false);
+      if (mountedRef.current) setIsGenerating(false);
     }
   }
 
-  // reset function (unchanged)
+  // Reset app: clear localStorage and reload page to ensure consistent state
   function handleResetApp() {
-    const ok = window.confirm(
-      "Reset the app? This will clear username, chat history and UI state."
-    );
+    const ok = window.confirm("Reset everything?");
     if (!ok) return;
     try {
       localStorage.removeItem(LOCAL_STORAGE_USERNAME_KEY);
       localStorage.removeItem(LOCAL_STORAGE_CONTEXT_KEY);
     } catch {}
-    // abort in-flight requests
-    if (fetchControllerRef.current) {
-      try {
-        fetchControllerRef.current.abort();
-      } catch {}
-      fetchControllerRef.current = null;
-    }
-    isComponentMountedRef.current = false;
-    setIsGenerating(false);
-    setMessages(DEFAULT_MESSAGES.slice());
-    setUsername("");
-    setUsernameLocked(false);
-    setShowUsernameModal(true);
-    setTimeout(() => {
-      isComponentMountedRef.current = true;
-      if (chatBoxRef.current)
-        chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
-    }, 50);
+    window.location.reload();
   }
 
-  // username modal (unchanged)
-  function handleSetUsername(submittedName) {
-    const trimmed = (submittedName || "").trim();
+  // Username flow
+  function handleSetUsername(name) {
+    const trimmed = (name || "").trim();
     if (!trimmed) return;
     setUsername(trimmed);
     setUsernameLocked(true);
@@ -291,7 +316,6 @@ export default function ChatApp() {
     } catch {}
   }
 
-  // UsernameModal component (omitted here for brevity) - assume you already have it in place
   const UsernameModal = ({ visible, defaultName, onSubmit }) => {
     const [draft, setDraft] = useState(defaultName || "");
     useEffect(() => setDraft(defaultName || ""), [defaultName, visible]);
@@ -307,7 +331,6 @@ export default function ChatApp() {
           justifyContent: "center",
           zIndex: 2000,
         }}
-        aria-modal="true"
       >
         <div
           style={{
@@ -321,15 +344,13 @@ export default function ChatApp() {
             color: "#eef1ff",
           }}
         >
-          <h2 style={{ margin: 0, marginBottom: 8, fontSize: 18 }}>
-            Pick a username
-          </h2>
+          <h2 style={{ marginBottom: 10 }}>Pick a username</h2>
           <form
             onSubmit={(e) => {
               e.preventDefault();
               onSubmit(draft);
             }}
-            style={{ display: "flex", gap: 8, marginTop: 12 }}
+            style={{ display: "flex", gap: 8 }}
           >
             <input
               autoFocus
@@ -343,7 +364,6 @@ export default function ChatApp() {
                 border: "1px solid rgba(255,255,255,0.06)",
                 background: "rgba(255,255,255,0.02)",
                 color: "#eef1ff",
-                fontSize: 14,
               }}
             />
             <button
@@ -354,8 +374,8 @@ export default function ChatApp() {
                 border: "none",
                 background: "#4b8cff",
                 color: "white",
-                cursor: "pointer",
                 fontWeight: 600,
+                cursor: "pointer",
               }}
             >
               Start
@@ -384,39 +404,23 @@ export default function ChatApp() {
         }}
       >
         <label style={{ color: "#cfd6ff", fontSize: 13 }}>Username</label>
-        {usernameLocked ? (
-          <div
-            style={{
-              padding: "6px 10px",
-              borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.03)",
-              background: "rgba(255,255,255,0.01)",
-              color: "#eef1ff",
-              minWidth: 140,
-            }}
-            title="Username is locked for this session. Reset to change."
-          >
-            {username}
-          </div>
-        ) : (
-          <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.06)",
-              background: "rgba(255,255,255,0.02)",
-              color: "#eef1ff",
-              minWidth: 140,
-            }}
-          />
-        )}
+        <div
+          style={{
+            padding: "6px 10px",
+            borderRadius: 8,
+            border: "1px solid rgba(255,255,255,0.03)",
+            background: "rgba(255,255,255,0.01)",
+            color: "#eef1ff",
+            minWidth: 140,
+          }}
+        >
+          {username}
+        </div>
 
         <button
           onClick={handleResetApp}
           style={{
-            marginLeft: 12,
+            marginLeft: "auto",
             padding: "6px 10px",
             borderRadius: 8,
             border: "none",
@@ -426,7 +430,6 @@ export default function ChatApp() {
             fontSize: 13,
             fontWeight: 600,
           }}
-          title="Reset the app (clears username, messages and UI state)"
         >
           Restart
         </button>
@@ -439,7 +442,7 @@ export default function ChatApp() {
             sender={msg.sender}
             text={msg.text}
             streaming={msg.streaming}
-            sentiment={msg.sentiment ?? null}
+            sentiment={msg.sentiment}
           />
         ))}
 
