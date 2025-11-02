@@ -454,7 +454,9 @@ export default function ChatApp() {
                 <span></span>
                 <span></span>
               </div>
-              <div className="thinking-label">Bot is thinking…</div>
+              <div className="thinking-label">
+                Your future is being decided...
+              </div>
             </div>
           </div>
         )}
