@@ -66,6 +66,88 @@ def first_message():
         # Catches errors specific to the Gemini API (e.g., key error, bad request)
         return jsonify({'error': 'Gemini API call failed',}), 500
 
+
+@api.route('/player/register', methods=['POST'])
+def register_player():
+    """
+    Register a player and create a session token.
+
+    Request:
+    {
+        "nickname": x
+    }
+
+    Response:
+    {
+        "session_token": xyz,
+        "nickname": x,
+        "returning_player": True/False,
+        'best_score": x (? if player exists)
+    }
+    """
+    data = request.get_json()
+    nickname = data.get('nickname')
+
+    if not nickname:
+        return jsonify({'error': 'Nickname is required'}), 400
+
+    existing = GameResult.query.filter_by(nickname=nickname).first()
+
+    if existing and existing.player_id:
+        return jsonify({
+            'session_token': existing.player_id,
+            'nickname': existing.nickname,
+            'returning_player': True,
+            'best_score': existing.total_score
+        })
+
+    player_id = secrets.token_urlsafe(16)
+
+    return jsonify({
+        'session_token': player_id,
+        'nickname': nickname,
+        'returning_player': False
+    }), 201
+
+
+@api.route('/player/verify', methods=['GET'])
+def verify_player():
+    """
+    Verify if a player's session token is valid.
+
+    Headers:
+    X-Player-Token: x
+
+    Response:
+    {
+        "valid": true,
+        "nickname": x,
+        "best_score": 300
+    }
+    """
+    player_token = request.headers.get('X-Player-Token')
+
+    if not player_token:
+        return jsonify({'error': 'No player token provided'}), 401
+
+    # if player exists in database
+    result = GameResult.query.filter_by(player_id=player_token).first()
+
+    if result:
+        return jsonify({
+            'valid': True,
+            'nickname': result.nickname,
+            'best_score': result.total_score,
+            'player_id': result.player_id
+        })
+
+    # exists but no game played yet - still valid
+    return jsonify({
+        'valid': True,
+        'new_player': True
+    })
+
+
     
 @api.route('/generate-win-description', methods=['POST'])
 def generate_win_description():
