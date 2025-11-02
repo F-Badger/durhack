@@ -425,7 +425,7 @@ export default function ChatApp() {
         >
           {username}
         </div>
-        <label style={{ color: "#cfd6ff", fontSize: 13 }}>Score:{score}</label>
+        <label style={{ color: "#cfd6ff", fontSize: 13 }}>Score: {score}</label>
         <button
           onClick={handleResetApp}
           style={{
